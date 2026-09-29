@@ -1,7 +1,17 @@
 from django.db import models
 from django.contrib.auth.hashers import make_password, check_password
 
+class Conjunto(models.Model):
+    nombre = models.CharField(max_length=200)
+    direccion = models.CharField(max_length=300, blank=True)
+    ciudad = models.CharField(max_length=100, blank=True)
+    activo = models.BooleanField(default=True)
+
+    def __str__(self):
+        return self.nombre
+
 class Apartamento(models.Model):
+    conjunto = models.ForeignKey(Conjunto, on_delete=models.CASCADE, related_name='apartamentos')
     bloque = models.IntegerField()
     apto = models.CharField(max_length=10)
     propietario = models.CharField(max_length=200, blank=True)
@@ -20,5 +30,5 @@ class Apartamento(models.Model):
         return f"{self.bloque} - {self.apto}"
 
     class Meta:
-        unique_together = ('bloque', 'apto')
-        ordering = ['bloque', 'apto']
+        unique_together = ('conjunto', 'bloque', 'apto')
+        ordering = ['conjunto', 'bloque', 'apto']
