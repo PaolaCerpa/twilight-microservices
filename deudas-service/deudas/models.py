@@ -75,3 +75,13 @@ class EstadoApartamento(models.Model):
 
     class Meta:
         ordering = ['apartamento_id']
+
+class PagoAplicado(models.Model):
+    pago_id = models.IntegerField(unique=True)
+    apartamento_id = models.IntegerField()
+    monto = models.DecimalField(max_digits=12, decimal_places=2)
+    revertido = models.BooleanField(default=False)
+    aplicado_en = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Pago {self.pago_id} - Apto {self.apartamento_id} - Monto {self.monto}"

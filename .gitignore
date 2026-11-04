@@ -1,6 +1,8 @@
 # Entornos virtuales
 venv/
 env/
+.venv/
+*/.venv/
 */venv/
 */env/
 
@@ -12,6 +14,7 @@ __pycache__/
 
 # Django
 *.sqlite3
+*.db
 */db.sqlite3
 media/
 
