@@ -7,6 +7,7 @@ class ApartamentoSerializer(serializers.ModelSerializer):
         fields = ['id', 'conjunto', 'bloque', 'apto', 'propietario', 'telefono', 'email', 'activo']
 
 class LoginSerializer(serializers.Serializer):
+    conjunto = serializers.IntegerField()
     bloque = serializers.IntegerField()
     apto = serializers.CharField()
     password = serializers.CharField(write_only=True)

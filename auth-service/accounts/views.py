@@ -29,28 +29,28 @@ class LoginView(APIView):
         serializer = LoginSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
+        conjunto = serializer.validated_data['conjunto']
         bloque = serializer.validated_data['bloque']
         apto = serializer.validated_data['apto']
         password = serializer.validated_data['password']
 
         try:
-            apartamento = Apartamento.objects.get(bloque=bloque, apto=apto, activo=True)
-        except Apartamento.DoesNotExist:
-            return Response(
-                {'error': 'Bloque y/o apartamento incorrecto.'},
-                status=status.HTTP_401_UNAUTHORIZED
+            apartamento = Apartamento.objects.get(
+                conjunto_id=conjunto, bloque=bloque, apto=apto, activo=True
             )
+        except Apartamento.DoesNotExist:
+            apartamento = None
 
-        if not apartamento.check_password(password):
+        if apartamento is None or not apartamento.check_password(password):
             return Response(
-                {'error': 'contraseña incorrecta.'},
+                {'error': 'Credenciales incorrectas.'},
                 status=status.HTTP_401_UNAUTHORIZED
             )
 
         token = generar_token(apartamento)
 
         return Response({
-            'token':token,
+            'token': token,
             'apartamento': ApartamentoSerializer(apartamento).data
         })
 
