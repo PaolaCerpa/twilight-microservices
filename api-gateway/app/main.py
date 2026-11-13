@@ -106,3 +106,17 @@ async def notificaciones_administracion(conjunto_id: int, solo_no_leidas: bool =
         f"{NOTIFICACIONES_SERVICE_URL}/notificaciones/conjunto/{conjunto_id}/administracion",
         params={"solo_no_leidas": solo_no_leidas},
     )
+
+@app.post("/api/admin/conjuntos", dependencies=[Depends(exigir_admin)])
+async def crear_conjunto(datos: dict = Body(...)):
+    return await reenviar("POST", f"{AUTH_SERVICE_URL}/auth/conjuntos/", json=datos)
+
+
+@app.get("/api/admin/conjuntos", dependencies=[Depends(exigir_admin)])
+async def listar_conjuntos():
+    return await reenviar("GET", f"{AUTH_SERVICE_URL}/auth/conjuntos/")
+
+
+@app.post("/api/admin/apartamentos", dependencies=[Depends(exigir_admin)])
+async def crear_apartamento(datos: dict = Body(...)):
+    return await reenviar("POST", f"{AUTH_SERVICE_URL}/auth/apartamentos/", json=datos)
