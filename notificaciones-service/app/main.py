@@ -84,12 +84,47 @@ def notificaciones_de_administracion(
     return consulta.order_by(Notificacion.creado_en.desc()).all()
 
 
-@app.patch("/notificaciones/{notificacion_id}/leida", response_model=NotificacionRespuesta)
-def marcar_leida(notificacion_id: int, db: Session = Depends(get_db)):
-    notificacion = db.get(Notificacion, notificacion_id)
+def _marcar_leida(db: Session, notificacion: Notificacion | None):
     if notificacion is None:
         raise HTTPException(status_code=404, detail="Notificación no encontrada.")
     notificacion.leida = True
     db.commit()
     db.refresh(notificacion)
     return notificacion
+
+
+@app.patch(
+    "/notificaciones/apartamento/{apartamento_id}/{notificacion_id}/leida",
+    response_model=NotificacionRespuesta,
+)
+def marcar_leida_residente(
+    apartamento_id: int, notificacion_id: int, db: Session = Depends(get_db)
+):
+    notificacion = (
+        db.query(Notificacion)
+        .filter(
+            Notificacion.id == notificacion_id,
+            Notificacion.apartamento_id == apartamento_id,
+        )
+        .first()
+    )
+    return _marcar_leida(db, notificacion)
+
+
+@app.patch(
+    "/notificaciones/conjunto/{conjunto_id}/administracion/{notificacion_id}/leida",
+    response_model=NotificacionRespuesta,
+)
+def marcar_leida_administracion(
+    conjunto_id: int, notificacion_id: int, db: Session = Depends(get_db)
+):
+    notificacion = (
+        db.query(Notificacion)
+        .filter(
+            Notificacion.id == notificacion_id,
+            Notificacion.conjunto_id == conjunto_id,
+            Notificacion.apartamento_id.is_(None),
+        )
+        .first()
+    )
+    return _marcar_leida(db, notificacion)

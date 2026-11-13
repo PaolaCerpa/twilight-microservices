@@ -120,3 +120,27 @@ async def listar_conjuntos():
 @app.post("/api/admin/apartamentos", dependencies=[Depends(exigir_admin)])
 async def crear_apartamento(datos: dict = Body(...)):
     return await reenviar("POST", f"{AUTH_SERVICE_URL}/auth/apartamentos/", json=datos)
+
+
+@app.patch("/api/notificaciones/apartamento/{apartamento_id}/{notificacion_id}/leida")
+async def marcar_leida_residente(
+    apartamento_id: int,
+    notificacion_id: int,
+    usuario: dict = Depends(usuario_actual),
+):
+    exigir_propio(apartamento_id, usuario)
+    return await reenviar(
+        "PATCH",
+        f"{NOTIFICACIONES_SERVICE_URL}/notificaciones/apartamento/{apartamento_id}/{notificacion_id}/leida",
+    )
+
+
+@app.patch(
+    "/api/admin/conjuntos/{conjunto_id}/notificaciones/{notificacion_id}/leida",
+    dependencies=[Depends(exigir_admin)],
+)
+async def marcar_leida_administracion(conjunto_id: int, notificacion_id: int):
+    return await reenviar(
+        "PATCH",
+        f"{NOTIFICACIONES_SERVICE_URL}/notificaciones/conjunto/{conjunto_id}/administracion/{notificacion_id}/leida",
+    )
