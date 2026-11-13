@@ -24,6 +24,7 @@ services:
       DATABASE_URL: sqlite:////data/pagos.db
       AUTH_SERVICE_URL: http://auth-service:8000
       DEUDAS_SERVICE_URL: http://deudas-service:8000
+      NOTIFICACIONES_SERVICE_URL: http://notificaciones-service:8000
     volumes:
       - pagos_data:/data
     restart: unless-stopped

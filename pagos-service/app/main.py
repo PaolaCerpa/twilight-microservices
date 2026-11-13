@@ -1,6 +1,7 @@
 import asyncio
 import threading
 from contextlib import asynccontextmanager
+from decimal import Decimal
 
 from fastapi import Depends, FastAPI, HTTPException
 from sqlalchemy.orm import Session
@@ -8,18 +9,50 @@ from sqlalchemy.orm import Session
 from .clients import (
     ServicioNoDisponible,
     aplicar_pago_en_deudas,
+    crear_notificacion,
     obtener_apartamento,
     revertir_pago_en_deudas,
 )
-from .config import INTERVALO_OUTBOX, MAX_INTENTOS
+from .config import INTERVALO_OUTBOX, MAX_INTENTOS, MAX_INTENTOS_NOTIFICACION
 from .database import Base, SessionLocal, engine, get_db
 from .models import ANULADO, CONFIRMADO, FALLIDO, Outbox, Pago, ahora_utc
 from .schemas import PagoCrear, PagoRespuesta
 
 EVENTO_REGISTRADO = "PAGO_REGISTRADO"
 EVENTO_ANULADO = "PAGO_ANULADO"
+EVENTO_NOTIFICACION = "NOTIFICACION"
 
 _lock = threading.Lock() 
+
+def formatear_pesos(monto) -> str:
+    valor = Decimal(str(monto))
+    if valor == valor.to_integral_value():
+        texto = f"{int(valor):,}".replace(",", ".")
+    else:
+        entero, decimales = f"{valor:.2f}".split(".")
+        texto = f"{int(entero):,}".replace(",", ".") + "," + decimales
+    return f"${texto}"
+
+
+def encolar_notificacion(
+    db: Session, cola: list, pago: Pago, *, para_residente: bool, tipo: str, mensaje: str
+) -> None:
+    destino = "residente" if para_residente else "admin"
+    evento = Outbox(
+        pago_id=pago.id,
+        tipo=EVENTO_NOTIFICACION,
+        payload={
+            "conjunto_id": pago.conjunto_id,
+            "apartamento_id": pago.apartamento_id if para_residente else None,
+            "tipo": tipo,
+            "mensaje": mensaje,
+            "origen": f"pago-{pago.id}-{tipo}-{destino}",
+        },
+        procesado=False,
+        intentos=0,
+    )
+    db.add(evento)
+    cola.append(evento)
 
 
 def procesar_outbox() -> int:
@@ -33,25 +66,53 @@ def procesar_outbox() -> int:
                 .order_by(Outbox.id)
                 .all()
             )
+            
             for evento in eventos:
                 pago = db.get(Pago, evento.pago_id)
                 datos = evento.payload
+                ubicacion = f"apto {datos.get('apto', '?')} del bloque {datos.get('bloque', '?')}"
 
                 if evento.tipo == EVENTO_REGISTRADO:
                     if aplicar_pago_en_deudas(datos["apartamento_id"], pago.id, datos["monto"]):
                         pago.estado = CONFIRMADO
                         evento.procesado = True
+                        monto = formatear_pesos(datos["monto"])
+                        encolar_notificacion(
+                            db, eventos, pago, para_residente=True, tipo="pago_confirmado",
+                            mensaje=f"Se registró tu pago de {monto}.",
+                        )
+                        encolar_notificacion(
+                            db, eventos, pago, para_residente=False, tipo="pago_reportado",
+                            mensaje=f"El {ubicacion} registró un pago de {monto}.",
+                        )
                     else:
                         evento.intentos += 1
                         if evento.intentos >= MAX_INTENTOS:
-                            pago.estado = FALLIDO
+                            pago.estado = FALLIDO  
                             evento.procesado = True
+                            encolar_notificacion(
+                                db, eventos, pago, para_residente=False, tipo="pago_fallido",
+                                mensaje=f"No se pudo aplicar a la deuda el pago {pago.id} "
+                                        f"del {ubicacion}. Requiere revisión.",
+                            )
 
                 elif evento.tipo == EVENTO_ANULADO:
                     if revertir_pago_en_deudas(datos["apartamento_id"], pago.id, datos["monto"]):
                         evento.procesado = True
+                        encolar_notificacion(
+                            db, eventos, pago, para_residente=True, tipo="pago_anulado",
+                            mensaje=f"Se anuló tu pago de {formatear_pesos(datos['monto'])}.",
+                        )
+                    else:
+                        evento.intentos += 1  
+
+                elif evento.tipo == EVENTO_NOTIFICACION:
+                    if crear_notificacion(datos):
+                        evento.procesado = True
                     else:
                         evento.intentos += 1
+                        if evento.intentos >= MAX_INTENTOS_NOTIFICACION:
+                            evento.procesado = True  
 
                 if evento.procesado:
                     evento.procesado_en = ahora_utc()
@@ -60,7 +121,6 @@ def procesar_outbox() -> int:
         finally:
             db.close()
     return resueltos
-
 
 async def worker_outbox():
     while True:
@@ -97,7 +157,12 @@ def registrar_pago(datos: PagoCrear, db: Session = Depends(get_db)):
     db.add(Outbox(
            pago_id=pago.id,
            tipo=EVENTO_REGISTRADO,
-           payload={"apartamento_id": pago.apartamento_id, "monto": str(pago.monto)},
+           payload={
+               "apartamento_id": pago.apartamento_id, 
+                "monto": str(pago.monto),
+                "bloque": apartamento["bloque"],
+                "apto": apartamento["apto"],
+            },
     ))
     db.commit()
 
@@ -126,7 +191,10 @@ def anular_pago(pago_id: int, db: Session = Depends(get_db)):
     db.add(Outbox(
         pago_id=pago.id,
         tipo=EVENTO_ANULADO,
-        payload={"apartamento_id": pago.apartamento_id, "monto": str(pago.monto)},
+        payload={
+            "apartamento_id": pago.apartamento_id,
+            "monto": str(pago.monto)
+        },
     ))
     db.commit()
 

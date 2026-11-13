@@ -1,7 +1,8 @@
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Response
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 
 from .clients import ServicioNoDisponible, obtener_apartamento
 from .database import Base, engine, get_db
@@ -19,7 +20,15 @@ app = FastAPI(title="notificaciones-service", lifespan=lifespan)
 
 
 @app.post("/notificaciones", response_model=NotificacionRespuesta, status_code=201)
-def crear_notificacion(datos: NotificacionCrear, db: Session = Depends(get_db)):
+def crear_notificacion(
+    datos: NotificacionCrear, response: Response, db: Session = Depends(get_db)
+):
+    if datos.origen:
+        existente = db.query(Notificacion).filter(Notificacion.origen == datos.origen).first()
+        if existente:
+            response.status_code = 200
+            return existente
+
     conjunto_id = datos.conjunto_id
 
     if datos.apartamento_id is not None:
@@ -36,9 +45,18 @@ def crear_notificacion(datos: NotificacionCrear, db: Session = Depends(get_db)):
         apartamento_id=datos.apartamento_id,
         tipo=datos.tipo,
         mensaje=datos.mensaje,
+        origen=datos.origen,
     )
     db.add(notificacion)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        existente = db.query(Notificacion).filter(Notificacion.origen == datos.origen).first()
+        if existente is None:
+            raise
+        response.status_code = 200
+        return existente
     db.refresh(notificacion)
     return notificacion
 

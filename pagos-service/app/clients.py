@@ -1,6 +1,6 @@
 import httpx
 
-from .config import AUTH_SERVICE_URL, DEUDAS_SERVICE_URL
+from .config import AUTH_SERVICE_URL, DEUDAS_SERVICE_URL, NOTIFICACIONES_SERVICE_URL
 
 TIMEOUT = 5.0
 
@@ -38,3 +38,11 @@ def revertir_pago_en_deudas(apartamento_id: int, pago_id: int, monto) -> bool:
         return response.status_code == 200
     except httpx.RequestError:
         return False
+
+def crear_notificacion(datos: dict) -> bool:
+    url = f"{NOTIFICACIONES_SERVICE_URL}/notificaciones"
+    try:
+        response = httpx.post(url, json=datos, timeout=TIMEOUT)
+    except httpx.RequestError:
+        return False
+    return response.status_code in (200, 201)

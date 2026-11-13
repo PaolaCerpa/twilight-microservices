@@ -20,3 +20,4 @@ class Notificacion(Base):
     mensaje: Mapped[str] = mapped_column(Text)
     leida: Mapped[bool] = mapped_column(Boolean, default=False)
     creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=ahora_utc)
+    origen: Mapped[str | None] = mapped_column(String(100), unique=True, nullable=True)

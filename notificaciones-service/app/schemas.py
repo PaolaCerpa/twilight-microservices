@@ -9,6 +9,7 @@ class NotificacionCrear(BaseModel):
     apartamento_id: int | None = None
     tipo: str = Field(default="general", max_length=30)
     mensaje: str = Field(min_length=1)
+    origen: str | None = Field(default=None, max_length=100)
 
     @model_validator(mode="after")
     def validar_destino(self) -> Self:
