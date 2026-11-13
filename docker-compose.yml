@@ -1,32 +1,56 @@
-version: "3.9"
-
 services:
+  auth-service:
+    build: ./auth-service
+    environment:
+      DATABASE_URL: sqlite:////data/auth.db
+      APP_ENV: ${APP_ENV:-desarrollo}
+      JWT_SECRET: ${JWT_SECRET:?Define JWT_SECRET en el archivo .env}
+    volumes:
+      - auth_data:/data
+    restart: unless-stopped
+
+  deudas-service:
+    build: ./deudas-service
+    environment:
+      DATABASE_URL: sqlite:////data/deudas.db
+      AUTH_SERVICE_URL: http://auth-service:8000
+    volumes:
+      - deudas_data:/data
+    restart: unless-stopped
+
+  pagos-service:
+    build: ./pagos-service
+    environment:
+      DATABASE_URL: sqlite:////data/pagos.db
+      AUTH_SERVICE_URL: http://auth-service:8000
+      DEUDAS_SERVICE_URL: http://deudas-service:8000
+    volumes:
+      - pagos_data:/data
+    restart: unless-stopped
+
+  notificaciones-service:
+    build: ./notificaciones-service
+    environment:
+      DATABASE_URL: sqlite:////data/notificaciones.db
+      AUTH_SERVICE_URL: http://auth-service:8000
+    volumes:
+      - notificaciones_data:/data
+    restart: unless-stopped
+
   api-gateway:
     build: ./api-gateway
     ports:
       - "8000:8000"
-    depends_on:
-      - auth-service
-      - deudas-service
-      - pagos-service
-      - notificaciones-service
+    environment:
+      AUTH_SERVICE_URL: http://auth-service:8000
+      DEUDAS_SERVICE_URL: http://deudas-service:8000
+      PAGOS_SERVICE_URL: http://pagos-service:8000
+      NOTIFICACIONES_SERVICE_URL: http://notificaciones-service:8000
+      ADMIN_API_KEY: ${ADMIN_API_KEY:?Define ADMIN_API_KEY en el archivo .env}
+    restart: unless-stopped
 
-  auth-service:
-    build: ./auth-service
-    ports:
-      - "8001:8000"
-
-  deudas-service:
-    build: ./deudas-service
-    ports:
-      - "8002:8000"
-
-  pagos-service:
-    build: ./pagos-service
-    ports:
-      - "8003:8000"
-
-  notificaciones-service:
-    build: ./notificaciones-service
-    ports:
-      - "8004:8000"
+volumes:
+  auth_data:
+  deudas_data:
+  pagos_data:
+  notificaciones_data:

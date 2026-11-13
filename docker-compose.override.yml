@@ -1,0 +1,13 @@
+services:
+  auth-service:
+    ports:
+      - "8001:8000"
+  deudas-service:
+    ports:
+      - "8002:8000"
+  pagos-service:
+    ports:
+      - "8003:8000"
+  notificaciones-service:
+    ports:
+      - "8004:8000"
