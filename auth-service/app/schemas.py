@@ -50,3 +50,37 @@ class ApartamentoRespuesta(BaseModel):
 class LoginRespuesta(BaseModel):
     token: str
     apartamento: ApartamentoRespuesta
+
+class AdminLoginCrear(BaseModel):
+    usuario: str = Field(min_length=1, max_length=100)
+    password: str = Field(min_length=1)
+
+
+class AdministradorCrear(BaseModel):
+    conjunto: int
+    usuario: str = Field(min_length=3, max_length=100)
+    nombre: str = Field(default="", max_length=200)
+    password: str = Field(min_length=8)
+
+
+class AdministradorRespuesta(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    conjunto: int = Field(validation_alias=AliasChoices("conjunto_id", "conjunto"))
+    usuario: str
+    nombre: str
+    activo: bool
+
+
+class AdminLoginRespuesta(BaseModel):
+    token: str
+    administrador: AdministradorRespuesta
+
+
+class ApartamentoActualizar(BaseModel):
+    propietario: str | None = Field(default=None, max_length=200)
+    telefono: str | None = Field(default=None, max_length=20)
+    email: str | None = Field(default=None, max_length=254)
+    activo: bool | None = None
+    password: str | None = Field(default=None, min_length=8)

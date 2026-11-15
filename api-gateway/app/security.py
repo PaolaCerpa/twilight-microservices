@@ -30,8 +30,17 @@ async def usuario_actual(
     return respuesta.json()["payload"]
 
 
+async def admin_actual(usuario: dict = Depends(usuario_actual)) -> dict:
+    if usuario.get("rol") != "admin":
+        raise HTTPException(status_code=403, detail="Se requiere una cuenta de administrador.")
+    return usuario
+
+
 def exigir_propio(apartamento_id: int, usuario: dict) -> None:
-    if usuario["apartamento_id"] != apartamento_id:
+    if (
+        usuario.get("rol", "residente") != "residente"
+        or usuario.get("apartamento_id") != apartamento_id
+    ):
         raise HTTPException(
             status_code=403,
             detail="No puedes acceder a información de otro apartamento.",

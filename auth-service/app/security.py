@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 import jwt
 
-from .config import JWT_EXPIRACION_HORAS, JWT_SECRET
+from .config import JWT_EXPIRACION_ADMIN_HORAS ,JWT_EXPIRACION_HORAS, JWT_SECRET
 
 ALGORITMO_JWT = "HS256"
 ITERACIONES = 600_000
@@ -35,10 +35,24 @@ HASH_FALSO = hashear_password("relleno")
 def generar_token(apartamento) -> str:
     ahora = datetime.now(timezone.utc)
     payload = {
+        "rol" : "residente",
         "apartamento_id": apartamento.id,
         "bloque": apartamento.bloque,
         "apto": apartamento.apto,
         "exp": ahora + timedelta(hours=JWT_EXPIRACION_HORAS),
+        "iat": ahora,
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=ALGORITMO_JWT)
+
+
+def generar_token_admin(administrador) -> str:
+    ahora = datetime.now(timezone.utc)
+    payload = {
+        "rol": "admin",
+        "administrador_id": administrador.id,
+        "conjunto_id": administrador.conjunto_id,
+        "usuario": administrador.usuario,
+        "exp": ahora + timedelta(hours=JWT_EXPIRACION_ADMIN_HORAS),
         "iat": ahora,
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=ALGORITMO_JWT)

@@ -9,8 +9,10 @@ from .config import (
 )
 from .proxy import reenviar
 from .security import exigir_admin, exigir_propio, usuario_actual
+from .admin import router as admin_router
 
 app = FastAPI(title="api-gateway")
+app.include_router(admin_router)
 
 # Solo para desarrollo: permite que la app web de Flutter (Chrome) llame al gateway.
 app.add_middleware(
@@ -86,18 +88,18 @@ async def notificaciones_residente(
 
 # ---------- Administración: exigen X-Admin-Key ----------
 
-@app.post("/api/admin/cargos", dependencies=[Depends(exigir_admin)])
+@app.post("/api/plataforma/cargos", dependencies=[Depends(exigir_admin)])
 async def crear_cargo(datos: dict = Body(...)):
     return await reenviar("POST", f"{DEUDAS_SERVICE_URL}/deudas/cargos/", json=datos)
 
 
-@app.post("/api/admin/pagos/{pago_id}/anular", dependencies=[Depends(exigir_admin)])
+@app.post("/api/plataforma/pagos/{pago_id}/anular", dependencies=[Depends(exigir_admin)])
 async def anular_pago(pago_id: int):
     return await reenviar("POST", f"{PAGOS_SERVICE_URL}/pagos/{pago_id}/anular")
 
 
 @app.get(
-    "/api/admin/conjuntos/{conjunto_id}/notificaciones",
+    "/api/plataforma/conjuntos/{conjunto_id}/notificaciones",
     dependencies=[Depends(exigir_admin)],
 )
 async def notificaciones_administracion(conjunto_id: int, solo_no_leidas: bool = False):
@@ -107,17 +109,17 @@ async def notificaciones_administracion(conjunto_id: int, solo_no_leidas: bool =
         params={"solo_no_leidas": solo_no_leidas},
     )
 
-@app.post("/api/admin/conjuntos", dependencies=[Depends(exigir_admin)])
+@app.post("/api/plataforma/conjuntos", dependencies=[Depends(exigir_admin)])
 async def crear_conjunto(datos: dict = Body(...)):
     return await reenviar("POST", f"{AUTH_SERVICE_URL}/auth/conjuntos/", json=datos)
 
 
-@app.get("/api/admin/conjuntos", dependencies=[Depends(exigir_admin)])
+@app.get("/api/plataforma/conjuntos", dependencies=[Depends(exigir_admin)])
 async def listar_conjuntos():
     return await reenviar("GET", f"{AUTH_SERVICE_URL}/auth/conjuntos/")
 
 
-@app.post("/api/admin/apartamentos", dependencies=[Depends(exigir_admin)])
+@app.post("/api/plataforma/apartamentos", dependencies=[Depends(exigir_admin)])
 async def crear_apartamento(datos: dict = Body(...)):
     return await reenviar("POST", f"{AUTH_SERVICE_URL}/auth/apartamentos/", json=datos)
 
@@ -136,7 +138,7 @@ async def marcar_leida_residente(
 
 
 @app.patch(
-    "/api/admin/conjuntos/{conjunto_id}/notificaciones/{notificacion_id}/leida",
+    "/api/plataforma/conjuntos/{conjunto_id}/notificaciones/{notificacion_id}/leida",
     dependencies=[Depends(exigir_admin)],
 )
 async def marcar_leida_administracion(conjunto_id: int, notificacion_id: int):
@@ -144,3 +146,8 @@ async def marcar_leida_administracion(conjunto_id: int, notificacion_id: int):
         "PATCH",
         f"{NOTIFICACIONES_SERVICE_URL}/notificaciones/conjunto/{conjunto_id}/administracion/{notificacion_id}/leida",
     )
+
+
+@app.post("/api/plataforma/administradores", dependencies=[Depends(exigir_admin)])
+async def crear_administrador(datos: dict = Body(...)):
+    return await reenviar("POST", f"{AUTH_SERVICE_URL}/auth/administradores/", json=datos)

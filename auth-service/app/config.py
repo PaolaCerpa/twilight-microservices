@@ -8,3 +8,5 @@ JWT_EXPIRACION_HORAS = int(os.getenv("JWT_EXPIRACION_HORAS", "24"))
 
 if ENTORNO == "produccion" and JWT_SECRET == "dev-only-clave-insegura-no-usar-en-produccion":
         raise RuntimeError("Define JWT_SECRET en el entorno de producción.")
+
+JWT_EXPIRACION_ADMIN_HORAS = int(os.getenv("JWT_EXPIRACION_ADMIN_HORAS", "8"))

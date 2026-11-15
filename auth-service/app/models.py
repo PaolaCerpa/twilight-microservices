@@ -27,3 +27,13 @@ class Apartamento(Base):
     email: Mapped[str] = mapped_column(String(254), default="")
     password: Mapped[str] = mapped_column(String(255))
     activo: Mapped[bool] = mapped_column(Boolean, default=True)
+
+class Administrador(Base):
+    __tablename__ = "administradores"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    conjunto_id: Mapped[int] = mapped_column(ForeignKey("conjuntos.id"), index=True)
+    usuario: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    nombre: Mapped[str] = mapped_column(String(200), default="")
+    password: Mapped[str] = mapped_column(String(255))
+    activo: Mapped[bool] = mapped_column(Boolean, default=True)
