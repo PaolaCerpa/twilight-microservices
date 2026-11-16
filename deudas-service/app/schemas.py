@@ -35,3 +35,37 @@ class EstadoRespuesta(BaseModel):
     saldo: Decimal
     notas: str | None
     actualizado_en: datetime
+
+
+class CargoMasivo(BaseModel):
+    periodo: date
+    monto: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
+    concepto: str = Field(default="Cuota administración", max_length=200)
+
+
+class ResultadoMasivo(BaseModel):
+    creados: int
+    omitidos: int
+
+
+class GestionActualizar(BaseModel):
+    acuerdo: bool
+    notas: str | None = Field(default=None, max_length=2000)
+
+
+class FilaDeuda(BaseModel):
+    apartamento_id: int
+    estado_gestion: str
+    total_cargos: Decimal
+    total_pagado: Decimal
+    saldo: Decimal
+    notas: str | None
+
+
+class ResumenConjunto(BaseModel):
+    total_deuda: Decimal
+    total_recaudado: Decimal
+    deudores: int
+    pre_juridicos: int
+    juridicos: int
+    acuerdos: int

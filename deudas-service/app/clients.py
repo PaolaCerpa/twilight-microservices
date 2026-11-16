@@ -21,3 +21,15 @@ def obtener_apartamento(apartamento_id: int) -> dict | None:
     if response.status_code == 404:
         return None
     raise ServicioNoDisponible(f"auth-service respondió {response.status_code}")
+
+
+def listar_apartamentos(conjunto_id: int) -> list[dict]:
+    url = f"{AUTH_SERVICE_URL}/auth/conjuntos/{conjunto_id}/apartamentos/"
+    try:
+        response = httpx.get(url, timeout=TIMEOUT)
+    except httpx.RequestError as e:
+        raise ServicioNoDisponible("auth-service no responde") from e
+
+    if response.status_code == 200:
+        return response.json()
+    raise ServicioNoDisponible(f"auth-service respondió {response.status_code}")

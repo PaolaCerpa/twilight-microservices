@@ -1,17 +1,28 @@
 from contextlib import asynccontextmanager
+from decimal import Decimal
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from .clients import ServicioNoDisponible, obtener_apartamento
+from .clients import ServicioNoDisponible, listar_apartamentos, obtener_apartamento
 from .database import Base, engine, get_db
-from .models import Cargo, EstadoApartamento, PagoAplicado
-from .reglas import actualizar_estado, saldo
-from .schemas import CargoCrear, CargoRespuesta, EstadoRespuesta, MovimientoPago
-
+from .models import ACUERDO, JURIDICO, NORMAL, PRE_JURIDICO, Cargo, EstadoApartamento, PagoAplicado 
+from .reglas import CENTAVOS, actualizar_estado, saldo
+from .schemas import (
+    CargoCrear,
+    CargoMasivo,
+    CargoRespuesta,
+    EstadoRespuesta,
+    FilaDeuda,
+    GestionActualizar,
+    MovimientoPago,
+    ResultadoMasivo,
+    ResumenConjunto,
+)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -52,14 +63,18 @@ def respuesta_estado(db: Session, estado: EstadoApartamento) -> EstadoRespuesta:
     )
 
 
-@app.post("/deudas/cargos/", response_model=CargoRespuesta, status_code=201)
-def crear_cargo(datos: CargoCrear, db: Session = Depends(get_db)):
+def _crear_cargo(datos: CargoCrear, db: Session, *, conjunto_esperado: int | None):
     try:
         apartamento = obtener_apartamento(datos.apartamento_id)
     except ServicioNoDisponible:
         return JSONResponse(status_code=503, content={"error": "auth-service no está disponible."})
     if apartamento is None:
         return JSONResponse(status_code=404, content={"error": "El apartamento no existe."})
+    if conjunto_esperado is not None and apartamento["conjunto"] != conjunto_esperado:
+        return JSONResponse(
+            status_code=404,
+            content={"error": "El apartamento no existe en este conjunto."},
+        )
 
     conjunto_id = apartamento["conjunto"]
     cargo = Cargo(conjunto_id=conjunto_id, **datos.model_dump())
@@ -70,11 +85,27 @@ def crear_cargo(datos: CargoCrear, db: Session = Depends(get_db)):
         estado = EstadoApartamento(conjunto_id=conjunto_id, apartamento_id=datos.apartamento_id)
         db.add(estado)
 
-    db.flush()  
+    db.flush()
     actualizar_estado(db, estado)
     db.commit()
     db.refresh(cargo)
     return cargo
+
+
+@app.post("/deudas/cargos/", response_model=CargoRespuesta, status_code=201)
+def crear_cargo(datos: CargoCrear, db: Session = Depends(get_db)):
+    return _crear_cargo(datos, db, conjunto_esperado=None)
+
+
+@app.post(
+    "/deudas/conjunto/{conjunto_id}/cargos/",
+    response_model=CargoRespuesta,
+    status_code=201,
+)
+def crear_cargo_del_conjunto(
+    conjunto_id: int, datos: CargoCrear, db: Session = Depends(get_db)
+):
+    return _crear_cargo(datos, db, conjunto_esperado=conjunto_id)
 
 
 @app.get("/deudas/{apartamento_id}/", response_model=EstadoRespuesta)
@@ -162,4 +193,166 @@ def revertir_deuda(apartamento_id: int, datos: MovimientoPago, db: Session = Dep
         db.commit()
         estado = buscar_estado(db, apartamento_id)
 
+    return respuesta_estado(db, estado)
+
+
+def filas_del_conjunto(db: Session, conjunto_id: int) -> list[FilaDeuda]:
+    cargos = dict(
+        db.query(Cargo.apartamento_id, func.sum(Cargo.monto))
+        .filter(Cargo.conjunto_id == conjunto_id)
+        .group_by(Cargo.apartamento_id)
+        .all()
+    )
+    estados = (
+        db.query(EstadoApartamento)
+        .filter(EstadoApartamento.conjunto_id == conjunto_id)
+        .order_by(EstadoApartamento.apartamento_id)
+        .all()
+    )
+    filas = []
+    for e in estados:
+        total_cargos = Decimal(str(cargos.get(e.apartamento_id, 0))).quantize(CENTAVOS)
+        total_pagado = Decimal(str(e.total_pagado)).quantize(CENTAVOS)
+        filas.append(
+            FilaDeuda(
+                apartamento_id=e.apartamento_id,
+                estado_gestion=e.estado_gestion,
+                total_cargos=total_cargos,
+                total_pagado=total_pagado,
+                saldo=total_cargos - total_pagado,
+                notas=e.notas,
+            )
+        )
+    return filas
+
+
+@app.get("/deudas/conjunto/{conjunto_id}/", response_model=list[FilaDeuda])
+def deudas_del_conjunto(conjunto_id: int, db: Session = Depends(get_db)):
+    return filas_del_conjunto(db, conjunto_id)
+
+
+@app.get("/deudas/conjunto/{conjunto_id}/resumen/", response_model=ResumenConjunto)
+def resumen_del_conjunto(conjunto_id: int, db: Session = Depends(get_db)):
+    filas = filas_del_conjunto(db, conjunto_id)
+    return ResumenConjunto(
+        total_deuda=sum((f.saldo for f in filas if f.saldo > 0), Decimal("0")),
+        total_recaudado=sum((f.total_pagado for f in filas), Decimal("0")),
+        deudores=sum(1 for f in filas if f.saldo > 0),
+        pre_juridicos=sum(1 for f in filas if f.estado_gestion == PRE_JURIDICO),
+        juridicos=sum(1 for f in filas if f.estado_gestion == JURIDICO),
+        acuerdos=sum(1 for f in filas if f.estado_gestion == ACUERDO),
+    )
+
+
+@app.get("/deudas/conjunto/{conjunto_id}/cargos/", response_model=list[CargoRespuesta])
+def cargos_del_conjunto(conjunto_id: int, db: Session = Depends(get_db)):
+    return (
+        db.query(Cargo)
+        .filter(Cargo.conjunto_id == conjunto_id)
+        .order_by(Cargo.periodo.desc(), Cargo.id.desc())
+        .all()
+    )
+
+
+@app.delete("/deudas/conjunto/{conjunto_id}/cargos/{cargo_id}/")
+def eliminar_cargo(conjunto_id: int, cargo_id: int, db: Session = Depends(get_db)):
+    cargo = (
+        db.query(Cargo)
+        .filter(Cargo.id == cargo_id, Cargo.conjunto_id == conjunto_id)
+        .first()
+    )
+    if cargo is None:
+        return JSONResponse(status_code=404, content={"error": "Cuota no encontrada."})
+
+    apartamento_id = cargo.apartamento_id
+    db.delete(cargo)
+    db.flush()
+    estado = buscar_estado(db, apartamento_id)
+    if estado is not None:
+        actualizar_estado(db, estado)
+    db.commit()
+    return {"eliminado": True}
+
+
+@app.post("/deudas/conjunto/{conjunto_id}/cargos/masivo/", response_model=ResultadoMasivo)
+def generar_cargos_masivos(
+    conjunto_id: int, datos: CargoMasivo, db: Session = Depends(get_db)
+):
+    try:
+        apartamentos = listar_apartamentos(conjunto_id)
+    except ServicioNoDisponible:
+        return JSONResponse(status_code=503, content={"error": "auth-service no está disponible."})
+
+    activos = [a["id"] for a in apartamentos if a["activo"]]
+    ya_tienen = {
+        fila[0]
+        for fila in db.query(Cargo.apartamento_id).filter(
+            Cargo.conjunto_id == conjunto_id,
+            Cargo.periodo == datos.periodo,
+            Cargo.concepto == datos.concepto,
+        )
+    }
+
+    creados = 0
+    for apartamento_id in activos:
+        if apartamento_id in ya_tienen:
+            continue
+        db.add(
+            Cargo(
+                conjunto_id=conjunto_id,
+                apartamento_id=apartamento_id,
+                periodo=datos.periodo,
+                concepto=datos.concepto,
+                monto=datos.monto,
+            )
+        )
+        if buscar_estado(db, apartamento_id) is None:
+            db.add(EstadoApartamento(conjunto_id=conjunto_id, apartamento_id=apartamento_id))
+        creados += 1
+
+    db.flush()
+    for apartamento_id in activos:
+        estado = buscar_estado(db, apartamento_id)
+        if estado is not None:
+            actualizar_estado(db, estado)
+    db.commit()
+    return ResultadoMasivo(creados=creados, omitidos=len(activos) - creados)
+
+
+@app.put(
+    "/deudas/conjunto/{conjunto_id}/apartamentos/{apartamento_id}/gestion/",
+    response_model=EstadoRespuesta,
+)
+def actualizar_gestion(
+    conjunto_id: int,
+    apartamento_id: int,
+    datos: GestionActualizar,
+    db: Session = Depends(get_db),
+):
+    try:
+        apartamento = obtener_apartamento(apartamento_id)
+    except ServicioNoDisponible:
+        return JSONResponse(status_code=503, content={"error": "auth-service no está disponible."})
+    if apartamento is None or apartamento["conjunto"] != conjunto_id:
+        return JSONResponse(
+            status_code=404,
+            content={"error": "El apartamento no existe en este conjunto."},
+        )
+
+    estado = buscar_estado(db, apartamento_id)
+    if estado is None:
+        estado = EstadoApartamento(conjunto_id=conjunto_id, apartamento_id=apartamento_id)
+        db.add(estado)
+        db.flush()
+
+    if datos.notas is not None:
+        estado.notas = datos.notas
+    if datos.acuerdo:
+        estado.estado_gestion = ACUERDO
+    elif estado.estado_gestion == ACUERDO:
+        estado.estado_gestion = NORMAL
+        actualizar_estado(db, estado)
+
+    db.commit()
+    db.refresh(estado)
     return respuesta_estado(db, estado)

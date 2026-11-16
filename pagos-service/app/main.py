@@ -142,33 +142,46 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="pagos-service", lifespan=lifespan)
 
 
-@app.post("/pagos", response_model=PagoRespuesta, status_code=201)
-def registrar_pago(datos: PagoCrear, db: Session = Depends(get_db)):
+def _registrar_pago(datos: PagoCrear, db: Session, *, conjunto_esperado: int | None) -> Pago:
     try:
         apartamento = obtener_apartamento(datos.apartamento_id)
     except ServicioNoDisponible:
-        raise HTTPException(status_code=503, detail="Servicio de apartamentos no disponible.")
+        raise HTTPException(status_code=503, detail="auth-service no está disponible.")
     if apartamento is None:
-        raise HTTPException(status_code=404, detail="Apartamento no encontrado.")
+        raise HTTPException(status_code=404, detail="El apartamento no existe.")
+    if conjunto_esperado is not None and apartamento["conjunto"] != conjunto_esperado:
+        raise HTTPException(status_code=404, detail="El apartamento no existe en este conjunto.")
 
     pago = Pago(conjunto_id=apartamento["conjunto"], **datos.model_dump())
     db.add(pago)
-    db.flush()
+    db.flush()  # asigna pago.id
     db.add(Outbox(
-           pago_id=pago.id,
-           tipo=EVENTO_REGISTRADO,
-           payload={
-               "apartamento_id": pago.apartamento_id, 
-                "monto": str(pago.monto),
-                "bloque": apartamento["bloque"],
-                "apto": apartamento["apto"],
-            },
+        pago_id=pago.id,
+        tipo=EVENTO_REGISTRADO,
+        payload={
+            "apartamento_id": pago.apartamento_id,
+            "monto": str(pago.monto),
+            "bloque": apartamento["bloque"],
+            "apto": apartamento["apto"],
+        },
     ))
     db.commit()
 
     procesar_outbox()
     db.refresh(pago)
     return pago
+
+
+@app.post("/pagos", response_model=PagoRespuesta, status_code=201)
+def registrar_pago(datos: PagoCrear, db: Session = Depends(get_db)):
+    return _registrar_pago(datos, db, conjunto_esperado=None)
+
+
+@app.post("/pagos/conjunto/{conjunto_id}", response_model=PagoRespuesta, status_code=201)
+def registrar_pago_del_conjunto(
+    conjunto_id: int, datos: PagoCrear, db: Session = Depends(get_db)
+):
+    return _registrar_pago(datos, db, conjunto_esperado=conjunto_id)
 
 
 @app.get("/pagos/{apartamento_id}", response_model=list[PagoRespuesta])
@@ -179,22 +192,21 @@ def historial_pagos(apartamento_id: int, estado: str | None = None, db: Session 
     return consulta.order_by(Pago.fecha.desc()).all()
 
 
-@app.post("/pagos/{pago_id}/anular", response_model=PagoRespuesta)
-def anular_pago(pago_id: int, db: Session = Depends(get_db)):
+def _anular_pago(pago_id: int, db: Session, *, conjunto_esperado: int | None) -> Pago:
     pago = db.get(Pago, pago_id)
-    if pago is None:
+    if pago is None or (conjunto_esperado is not None and pago.conjunto_id != conjunto_esperado):
         raise HTTPException(status_code=404, detail="Pago no encontrado.")
     if pago.estado != CONFIRMADO:
-        raise HTTPException(status_code=409, detail=f"Solo se pueden anular pagos confirmados. Estado actual: {pago.estado}.")
+        raise HTTPException(
+            status_code=409,
+            detail=f"Solo se pueden anular pagos confirmados (estado actual: {pago.estado}).",
+        )
 
     pago.estado = ANULADO
     db.add(Outbox(
         pago_id=pago.id,
         tipo=EVENTO_ANULADO,
-        payload={
-            "apartamento_id": pago.apartamento_id,
-            "monto": str(pago.monto)
-        },
+        payload={"apartamento_id": pago.apartamento_id, "monto": str(pago.monto)},
     ))
     db.commit()
 
@@ -203,6 +215,28 @@ def anular_pago(pago_id: int, db: Session = Depends(get_db)):
     return pago
 
 
+@app.post("/pagos/{pago_id}/anular", response_model=PagoRespuesta)
+def anular_pago(pago_id: int, db: Session = Depends(get_db)):
+    return _anular_pago(pago_id, db, conjunto_esperado=None)
+
+
+@app.post("/pagos/conjunto/{conjunto_id}/{pago_id}/anular", response_model=PagoRespuesta)
+def anular_pago_del_conjunto(
+    conjunto_id: int, pago_id: int, db: Session = Depends(get_db)
+):
+    return _anular_pago(pago_id, db, conjunto_esperado=conjunto_id)
+
+
 @app.post("/outbox/procesar")
 def forzar_outbox():
     return {"resueltos": procesar_outbox()}
+
+
+@app.get("/pagos/conjunto/{conjunto_id}", response_model=list[PagoRespuesta])
+def pagos_del_conjunto(
+    conjunto_id: int, estado: str | None = None, db: Session = Depends(get_db)
+):
+    consulta = db.query(Pago).filter(Pago.conjunto_id == conjunto_id)
+    if estado:
+        consulta = consulta.filter(Pago.estado == estado)
+    return consulta.order_by(Pago.fecha.desc(), Pago.id.desc()).all()
