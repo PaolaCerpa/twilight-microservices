@@ -1,0 +1,1 @@
+export const NOMBRE_APP = 'Vecindapp';

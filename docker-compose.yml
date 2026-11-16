@@ -49,6 +49,14 @@ services:
       NOTIFICACIONES_SERVICE_URL: http://notificaciones-service:8000
       ADMIN_API_KEY: ${ADMIN_API_KEY:?Define ADMIN_API_KEY en el archivo .env}
     restart: unless-stopped
+  
+  admin-web:
+    build: ./admin-web
+    ports:
+      - "8080:8080"
+    depends_on:
+      - api-gateway
+    restart: unless-stopped
 
 volumes:
   auth_data:

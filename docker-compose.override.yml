@@ -11,3 +11,8 @@ services:
   notificaciones-service:
     ports:
       - "8004:8000"
+  admin-web:
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./admin-web/site:/usr/share/nginx/html:ro
